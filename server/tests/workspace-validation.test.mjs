@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { validateWorkspace } from '../src/workspace-validation.mjs';
+
+export const fixture = () => ({ version:1, theme:'light', motion:true, tags:['学习'], notes:[{id:'note-1',summary:'你好 👩🏽‍💻',body:'中文\nEnglish\n\u2028🎨',tags:['学习'],createdAt:'2026-09-09T01:00:00.000Z',updatedAt:'2026-09-09T01:00:00.000Z',deleted:false}],maps:[{id:'map-1',name:'思想',summary:'Connections',description:'你好',updatedAt:'2026-09-09T01:00:00.000Z',deleted:false,tagOrder:['学习'],nodes:[{id:'group-1',type:'group',position:{x:10,y:20},style:{width:600,height:400},data:{label:'组'}},{id:'node-1',type:'note',noteId:'note-1',parentId:'group-1',position:{x:20,y:30},color:'sage',zIndex:3},{id:'node-2',type:'note',noteId:'note-1',position:{x:400,y:20}},{id:'shape-1',type:'shape',position:{x:-40,y:-50},style:{width:200,height:80},zIndex:-12,data:{shape:'ellipse',label:'思考',color:'lilac',strokeStyle:'dashed'}}],edges:[{id:'edge-1',source:'node-1',target:'node-2',label:'关联',route:[{x:255,y:34}],zIndex:-2}],saved:null,history:[]}] });
+
+test('Unicode and every persisted canvas field survive validation',()=>assert.deepEqual(validateWorkspace(fixture()),fixture()));
+test('validation rejects non-finite positions instead of silently serializing them',()=>{const data=fixture();data.maps[0].nodes[0].position.x=Infinity;assert.throws(()=>validateWorkspace(data),{code:'VALIDATION_ERROR'});});
+test('validation rejects unknown node types, invalid colors, parent cycles and non-note edge endpoints',()=>{
+  for(const change of [d=>d.maps[0].nodes[0].type='alien',d=>d.maps[0].nodes[1].color='url(evil)',d=>d.maps[0].nodes[0].parentId='node-1',d=>d.maps[0].edges[0].target='shape-1',d=>d.maps[0].nodes[1].noteId='someone-elses-note',d=>d.maps[0].nodes.push({...d.maps[0].nodes[0]})]){const d=fixture();change(d);assert.throws(()=>validateWorkspace(d),{code:'VALIDATION_ERROR'});}
+});
+test('summaries count graphemes without truncating existing imports',()=>{const d=fixture();d.notes[0].summary='👩🏽‍💻'.repeat(160);assert.equal(validateWorkspace(d).notes[0].summary,d.notes[0].summary);d.notes[0].summary+='界';assert.throws(()=>validateWorkspace(d),{code:'VALIDATION_ERROR'});assert.equal(validateWorkspace(d,{legacy:true}).notes[0].summary,d.notes[0].summary);});
+test('tag spelling variants normalize into one stable display tag',()=>{const d=fixture();d.tags=['Ｌｅａｒｎｉｎｇ','learning',' # LEARNING '];d.notes[0].tags=['#learning','LEARNING'];d.maps[0].tagOrder=['learning'];const v=validateWorkspace(d);assert.deepEqual(v.tags,['Ｌｅａｒｎｉｎｇ']);assert.deepEqual(v.notes[0].tags,['Ｌｅａｒｎｉｎｇ']);assert.deepEqual(v.maps[0].tagOrder,['Ｌｅａｒｎｉｎｇ']);});

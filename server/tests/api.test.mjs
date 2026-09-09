@@ -1,0 +1,62 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+
+const databaseUrl = process.env.TEST_DATABASE_URL;
+test('API provides real PostgreSQL auth, isolation, scopes, versions and idempotency', {skip: !databaseUrl}, async t => {
+ const {createPool,migrate}=await import('../src/db.mjs');
+ const {createApp}=await import('../src/app.mjs');
+ const {hashPassword}=await import('../src/auth.mjs');
+ const admin=createPool(databaseUrl);const schema=`api_${randomUUID().replaceAll('-','')}`;
+ await admin.query(`CREATE SCHEMA ${schema}`);
+ const uri=new URL(databaseUrl);uri.searchParams.set('options',`-c search_path=${schema}`);
+ const pool=createPool(uri.toString());await migrate(pool);
+ const origin='http://localhost';const server=createApp({pool,origin}).listen(0,'127.0.0.1');
+ await new Promise(r=>server.once('listening',r));const base=`http://127.0.0.1:${server.address().port}/api/v1`;
+ t.after(async()=>{await new Promise(r=>server.close(r));await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end()});
+ let cookie='';
+ async function request(path,{method='GET',body,token,csrf=true,key,cookieOverride,accountId}={}){
+  const headers={...(body!==undefined?{'Content-Type':'application/json'}:{}),...(token?{Authorization:`Bearer ${token}`}:{Cookie:cookieOverride??cookie}),...(csrf?{'X-Socrates-CSRF':'1',Origin:origin}:{}),...(key?{'Idempotency-Key':key}:{}),...(accountId?{'X-Socrates-Account':accountId}:{})};
+  const response=await fetch(base+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body)});const result=await response.json();return {status:response.status,body:result,cookie:response.headers.get('set-cookie')};
+ }
+ assert.equal((await request('/workspace')).status,401);
+ assert.equal((await request('/auth/status')).body.setupRequired,true);
+ const setups=await Promise.all([request('/auth/setup',{method:'POST',body:{email:'owner@example.com',password:'correct-horse-battery'}}),request('/auth/setup',{method:'POST',body:{email:'racer@example.com',password:'correct-horse-battery'}})]);
+ assert.deepEqual(setups.map(x=>x.status).sort(),[201,403]);cookie=setups.find(x=>x.status===201).cookie.split(';')[0];const owner=setups.find(x=>x.status===201).body.user;
+ assert.equal((await request('/auth/status')).body.setupRequired,false);
+ assert.equal((await request('/auth/me')).body.user.id,owner.id);
+ let workspace=(await request('/workspace')).body;assert.equal(workspace.revision,0);assert.equal(workspace.data.notes.length,0);
+ assert.equal((await request('/notes',{method:'POST',body:{expectedRevision:0,summary:'先理解，再表达。',body:'A real note',tags:[]},csrf:false})).status,403);
+ const created=await request('/notes',{method:'POST',body:{expectedRevision:0,summary:'先理解，再表达。',body:'A real note',tags:['表达']},key:'create-first-note'});assert.equal(created.status,201,JSON.stringify(created.body));assert.equal(created.body.result.summary,'先理解，再表达。');
+ const retried=await request('/notes',{method:'POST',body:{expectedRevision:0,summary:'先理解，再表达。',body:'A real note',tags:['表达']},key:'create-first-note'});assert.deepEqual(retried.body,created.body);
+ assert.equal((await request('/notes',{method:'POST',body:{expectedRevision:0,summary:'Different',body:'',tags:[]},key:'create-first-note'})).status,409);
+ assert.equal((await request('/notes',{method:'POST',body:{expectedRevision:0,summary:'Stale',body:'',tags:[]}})).status,409);
+ const reader=(await request('/connections',{method:'POST',body:{name:'Reader',scopes:['read']}})).body;assert.match(reader.token,/^sct_/);
+ assert.equal((await request('/notes',{token:reader.token})).body.items[0].summary,'先理解，再表达。');
+ assert.equal((await request('/notes',{method:'POST',token:reader.token,body:{expectedRevision:1,summary:'blocked',body:'',tags:[]}})).status,403);
+ assert.equal((await request('/connections',{token:reader.token})).status,403);
+ const writer=(await request('/connections',{method:'POST',body:{name:'Writer',scopes:['read','write']}})).body;
+ await pool.query('UPDATE api_connections SET scopes=$2 WHERE id=$1',[writer.connection.id,['write']]);assert.equal((await request('/workspace',{token:writer.token})).status,401);await pool.query('UPDATE api_connections SET scopes=$2 WHERE id=$1',[writer.connection.id,['read','write']]);
+ workspace=(await request('/workspace')).body;workspace.data.notes=[];
+ assert.equal((await request('/workspace',{method:'PUT',token:writer.token,body:{expectedRevision:workspace.revision,data:workspace.data}})).status,403);
+ await request(`/connections/${reader.connection.id}`,{method:'DELETE'});assert.equal((await request('/workspace',{token:reader.token})).status,401);
+ const otherId=randomUUID();await pool.query('INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)',[otherId,'second@example.com',await hashPassword('second-owner-password')]);await pool.query('INSERT INTO workspaces(owner_id) VALUES($1)',[otherId]);
+ const login=await request('/auth/login',{method:'POST',body:{email:'second@example.com',password:'second-owner-password'}});const otherCookie=login.cookie.split(';')[0];
+ assert.equal((await request(`/notes/${created.body.result.id}`,{cookieOverride:otherCookie})).status,404);
+ assert.equal((await request('/workspace',{cookieOverride:otherCookie})).body.data.notes.length,0);
+ const secondNote=await request('/notes',{method:'POST',cookieOverride:otherCookie,body:{expectedRevision:0,summary:'Second account private note',body:'Keep this account separate',tags:[]}});assert.equal(secondNote.status,201);
+ const secondBefore=(await request('/workspace',{cookieOverride:otherCookie})).body;
+ const firstBefore=(await request('/workspace')).body;assert.equal(firstBefore.revision,secondBefore.revision);
+ const switchedRead=await request('/workspace',{cookieOverride:otherCookie,accountId:owner.id});assert.equal(switchedRead.status,409);assert.equal(switchedRead.body.error.code,'ACCOUNT_CHANGED');
+ const switchedWrite=await request('/workspace',{method:'PUT',cookieOverride:otherCookie,accountId:owner.id,body:{expectedRevision:firstBefore.revision,data:firstBefore.data}});assert.equal(switchedWrite.status,409);assert.equal(switchedWrite.body.error.code,'ACCOUNT_CHANGED');
+ assert.deepEqual((await request('/workspace',{cookieOverride:otherCookie,accountId:otherId})).body,secondBefore);
+ assert.equal((await request('/connections',{cookieOverride:otherCookie,accountId:owner.id})).status,409);
+ assert.equal((await request('/auth/me',{cookieOverride:otherCookie,accountId:owner.id})).status,409);
+ assert.equal((await request('/auth/logout',{method:'POST',cookieOverride:otherCookie,accountId:owner.id})).status,409);
+ assert.equal((await request('/auth/me',{cookieOverride:otherCookie})).status,200);
+ assert.equal((await request('/workspace',{token:writer.token,accountId:otherId})).status,409);
+ assert.equal((await request('/workspace',{token:writer.token})).status,200);
+
+ assert.ok((await request('/activity')).body.items.length>0);
+ assert.equal((await request('/auth/logout',{method:'POST'})).status,200);assert.equal((await request('/workspace')).status,401);
+});

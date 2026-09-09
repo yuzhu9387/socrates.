@@ -1,0 +1,26 @@
+{
+  "name": "socrates",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "db:start": "node scripts/local-db.mjs start",
+    "db:stop": "node scripts/local-db.mjs stop",
+    "db:status": "node scripts/local-db.mjs status",
+    "migrate": "npm --prefix server run migrate",
+    "build": "npm --prefix demo run build:app",
+    "start": "npm --prefix server start",
+    "dev": "npm --prefix server run dev",
+    "test": "npm --prefix demo test && npm --prefix server test",
+    "test:e2e": "node --env-file-if-exists=.env scripts/verify-production.mjs",
+    "backup:db": "node --env-file-if-exists=.env scripts/database-backup.mjs",
+    "mcp": "npm --prefix server run mcp"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

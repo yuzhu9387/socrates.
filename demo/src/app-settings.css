@@ -1,0 +1,67 @@
+.app-settings .settings-section{background:var(--surface)}
+.app-settings-heading{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:70px;padding:18px 25px;background:var(--soft);border-bottom:1px solid var(--line)}
+.app-settings-heading h2{font:500 20px/1.25 Georgia,"Songti SC",serif;color:var(--ink)}
+.app-settings-heading p{margin-top:6px;color:var(--muted);font-size:11px;line-height:1.55}
+.app-settings-heading>.btn{flex-shrink:0}
+.app-settings .setting-row{min-height:70px}
+.app-settings .setting-row>div{min-width:0}
+.app-settings .setting-row strong{overflow-wrap:anywhere;font-size:13px;font-weight:500}
+.app-settings .setting-actions.app-settings-actions{padding:23px 25px 25px}
+
+.app-settings-disclosure{border-top:1px solid var(--line)}
+.app-settings-disclosure>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:17px 25px;color:var(--text);font-size:12px;font-weight:500;cursor:pointer;list-style:none}
+.app-settings-disclosure>summary::-webkit-details-marker{display:none}
+.app-settings-disclosure>summary:after{content:'+';color:var(--muted);font-size:17px;font-weight:400;line-height:1}
+.app-settings-disclosure[open]>summary:after{content:'−'}
+.app-settings-disclosure>summary:hover{background:var(--hover)}
+.app-settings-disclosure>summary:focus-visible{outline:2px solid var(--muted);outline-offset:-3px}
+.app-settings-disclosure>summary span{margin-left:auto;color:var(--muted);font-size:10px;font-weight:400}
+.app-settings-heading+.app-settings-disclosure{border-top:0}
+.app-settings-disclosure-body{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:0 25px 22px}
+.app-settings-disclosure-body p{color:var(--muted);font-size:11px;line-height:1.6}
+.app-settings-disclosure-content{border-top:1px solid var(--line)}
+
+.app-token-form{display:grid;grid-template-columns:minmax(170px,1fr) minmax(240px,1.4fr) auto;align-items:end;gap:15px;padding:23px 25px}
+.app-token-name-field{display:flex;flex-direction:column}
+.app-token-name-field>label,.app-token-form legend{display:block;margin-bottom:7px;color:var(--muted);font-size:10px}
+.app-token-name-field>input,.app-management-row input{box-sizing:border-box;width:100%;min-height:37px;border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--surface);color:var(--text);font:inherit}
+.app-token-form fieldset{display:flex;align-items:center;gap:13px;border:0;padding:0;margin:0}
+.app-token-form fieldset label{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:11px}
+.app-token-once{display:flex;align-items:center;gap:13px;margin:0 25px 20px;padding:14px;border:1px solid var(--line);border-radius:7px;background:var(--soft)}
+.app-token-once>div{min-width:130px}
+.app-token-once strong{font-size:12px}
+.app-token-once p{margin:4px 0 0;color:var(--muted);font-size:10px}
+.app-token-once code{flex:1;min-width:0;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--text);font-size:10px;user-select:all}
+
+.app-management-list{border-top:1px solid var(--line)}
+.app-management-row{display:flex;align-items:center;gap:13px;padding:16px 25px;border-bottom:1px solid var(--line)}
+.app-management-row:last-child{border-bottom:0}
+.app-management-row>svg{color:var(--muted)}
+.app-management-row>div{display:flex;flex:1;min-width:0;flex-direction:column;gap:5px}
+.app-management-row strong{color:var(--text);font-size:12px;font-weight:600}
+.app-management-row small{color:var(--muted);font-size:10px;line-height:1.45;overflow-wrap:anywhere}
+.app-settings-empty{margin:0;padding:20px 25px;color:var(--muted);font-size:11px}
+.app-activity-list{border-top:0}
+.app-activity-dot{width:7px;height:7px;border:1px solid var(--muted);border-radius:50%;background:transparent;flex-shrink:0}
+.app-load-more{padding:15px 25px;border-top:1px solid var(--line)}
+
+@media(min-width:761px) and (max-width:1100px){
+  .app-token-form{grid-template-columns:1fr}
+  .app-token-form>.btn{justify-self:start}
+  .app-token-once{flex-wrap:wrap}
+  .app-token-once code{flex-basis:100%}
+}
+
+@media(max-width:760px){
+  .app-settings-heading{min-height:64px;padding:16px 20px}
+  .app-settings-heading h2{font-size:19px}
+  .app-settings-heading>.btn{font-size:10px;padding:8px 10px}
+  .app-settings-disclosure>summary{padding:16px 20px}
+  .app-settings-disclosure-body{align-items:flex-start;flex-direction:column;padding:0 20px 20px}
+  .app-settings .setting-actions.app-settings-actions{padding:20px}
+  .app-token-form{grid-template-columns:1fr;padding:20px}
+  .app-token-once{align-items:flex-start;flex-wrap:wrap;margin:0 20px 18px}
+  .app-token-once code{flex-basis:100%}
+  .app-management-row{padding:15px 20px}
+  .app-load-more{padding:14px 20px}
+}

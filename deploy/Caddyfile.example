@@ -1,0 +1,4 @@
+# Replace notes.example.com with your own hostname after DNS is configured.
+notes.example.com {
+    reverse_proxy 127.0.0.1:3001
+}
