@@ -43,7 +43,7 @@ async function stopServer() {
   server.kill('SIGTERM');
   try { await exited; } finally { clearTimeout(force); }
 }
-const checks = [], errors = [];
+const checks = [], errors = [], activityRequests = [];
 const screenshots = path.resolve('demo/screenshots/production');
 await fs.mkdir(screenshots, { recursive: true });
 try {
@@ -54,6 +54,7 @@ try {
   const page = await context.newPage();
   page.setDefaultTimeout(10000);
   page.on('pageerror', e => errors.push(e.message));
+  page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/v1/activity')) activityRequests.push(request.url()); });
   const origin = 'http://127.0.0.1:3002';
   await page.goto(origin); await page.waitForLoadState('networkidle');
   await page.screenshot({ path: path.join(screenshots, 'setup.png') });
@@ -211,23 +212,23 @@ try {
   checks.push('Real ZIP backup restores a nonempty account with multiple frozen historical revisions');
 
   await page.goto(`${origin}/#/settings`);
-  await page.getByRole('heading', { name: 'Activity', exact: true }).waitFor();
-  await page.locator('.app-activity-list .app-management-row').first().waitFor();
-  assert.equal(await page.locator('.app-legacy-import').count(), 0, 'Legacy import is absent when no demo data exists.');
+  await page.getByRole('heading', { name: 'AI & integrations', exact: true }).waitFor();
+  assert.equal(await page.getByRole('heading', { name: 'Activity', exact: true }).count(), 0);
+  assert.equal(await page.locator('.app-legacy-import').count(), 0, 'Legacy browser import is not exposed in Settings.');
   assert.equal(await page.locator('.app-connections').getAttribute('open'), null, 'Connection controls start collapsed.');
   const headingStyles = await page.locator('.app-settings-heading h2').evaluateAll(headings => headings.map(heading => {
     const style = getComputedStyle(heading);
     return [style.fontFamily, style.fontSize, style.fontWeight, style.color];
   }));
   assert.equal(new Set(headingStyles.map(style => JSON.stringify(style))).size, 1, 'Settings section titles share one typography style.');
-  assert.equal(await page.locator('.app-activity-list').getByText('workspace.commit', { exact: true }).count(), 0);
+  assert.deepEqual(activityRequests, [], 'Settings does not fetch hidden activity data.');
   await page.locator('.toast').waitFor({ state: 'hidden' });
   await page.screenshot({ path: path.join(screenshots, 'settings-light.png'), fullPage: true });
   await page.getByRole('button', { name: 'Dark', exact: true }).click();
   await waitForWorkspace(data => data.theme === 'dark');
   await page.screenshot({ path: path.join(screenshots, 'settings-dark.png'), fullPage: true });
-  const darkHeading = await page.getByRole('heading', { name: 'Activity', exact: true }).evaluate(heading => getComputedStyle(heading).color);
-  assert.notEqual(darkHeading, headingStyles[0][3], 'Activity title follows the selected theme.');
+  const darkHeading = await page.getByRole('heading', { name: 'Appearance', exact: true }).evaluate(heading => getComputedStyle(heading).color);
+  assert.notEqual(darkHeading, headingStyles[0][3], 'Settings titles follow the selected theme.');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(300);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -241,7 +242,7 @@ try {
   await waitForWorkspace(data => data.theme === 'light');
   await page.screenshot({ path: path.join(screenshots, 'settings-mobile-light.png'), fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  checks.push('Settings typography and Activity share the theme; desktop dark/light and mobile layouts have working avatar navigation');
+  checks.push('Settings sections share the theme; desktop dark/light and mobile layouts have working avatar navigation');
   await page.locator('.app-connections > summary').click();
   await page.getByLabel('Token name', { exact: true }).fill('UI integration');
   await page.screenshot({ path: path.join(screenshots, 'settings-connections.png'), fullPage: true });
@@ -270,48 +271,42 @@ try {
   assert.equal((await fetch(`${origin}/api/v1/workspace/status`, { headers: { Authorization: `Bearer ${visibleToken}` } })).status, 401);
   checks.push('Settings creates, renames and revokes a real API token');
 
-  backup.notes[0].summary = 'Browser migration · 旧笔记';
-  await page.evaluate(({ key, data }) => localStorage.setItem(key, JSON.stringify(data)), { key: STORAGE_KEY, data: backup });
+  const legacyBackup = structuredClone(backup);
+  legacyBackup.notes[0].summary = 'Legacy source · 不导入';
+  await page.evaluate(({ key, data }) => localStorage.setItem(key, JSON.stringify(data)), { key: STORAGE_KEY, data: legacyBackup });
   await page.reload();
-  await page.locator('.app-legacy-import > summary').click();
-  await page.getByRole('button', { name: 'Replace with demo data', exact: true }).click();
-  await page.getByRole('button', { name: 'Replace workspace', exact: true }).click();
-  await waitForWorkspace(data => data.notes[0]?.summary === 'Browser migration · 旧笔记');
-  assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY), backup);
-  checks.push('Explicit same-origin legacy browser import commits to PostgreSQL and preserves the legacy source key');
+  await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+  assert.equal(await page.locator('.app-legacy-import, .app-activity-list').count(), 0);
+  assert.equal(await page.getByRole('heading', { name: 'Activity', exact: true }).count(), 0);
+  assert.equal(await page.getByText('Replace with browser data', { exact: true }).count(), 0);
+  assert.deepEqual(activityRequests, [], 'Settings never requests the removed activity section.');
+  assert.equal((await api('GET', '/workspace')).body.data.notes[0].summary, backup.notes[0].summary);
+  assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY), legacyBackup);
+  checks.push('Settings omits Activity and browser migration, makes no activity requests, and leaves legacy browser data and account notes unchanged');
 
   const owner = (await api('GET', '/auth/me')).body.user;
   await pool.query(`INSERT INTO api_connections(id,user_id,name,token_hash,scopes,created_at,revoked_at)
     SELECT id,$1,'History token '||ordinality,'revoked-fixture-'||id::text,ARRAY['read'],now()-ordinality*interval '1 ms',now()
-    FROM unnest($2::uuid[]) WITH ORDINALITY AS fixture(id,ordinality)`, [owner.id, Array.from({ length: 55 }, () => randomUUID())]);
-  await pool.query(`INSERT INTO activity_events(id,owner_id,source,action,created_at)
-    SELECT id,$1,'api','fixture.event',now()-ordinality*interval '1 ms'
     FROM unnest($2::uuid[]) WITH ORDINALITY AS fixture(id,ordinality)`, [owner.id, Array.from({ length: 55 }, () => randomUUID())]);
   await page.reload();
   await page.locator('.app-connections > summary').click();
   await page.getByRole('button', { name: 'Load more connections', exact: true }).click();
   await page.getByText('History token 55', { exact: true }).waitFor();
   assert.ok(await page.locator('.app-token-list .app-management-row').count() > 50);
-  await page.getByRole('button', { name: 'Load more activity', exact: true }).click();
-  await page.waitForFunction(() => document.querySelectorAll('.app-activity-list .app-management-row').length > 50);
   assert.equal(await page.getByRole('button', { name: 'Rename History token 55', exact: true }).count(), 0);
-  await page.getByRole('button', { name: 'Clear activity', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Clear activity', exact: true }).click();
-  await page.getByText('Activity cleared', { exact: true }).waitFor();
-  assert.equal((await api('GET', '/activity')).body.total, 0);
-  checks.push('Settings paginates past 50 token/activity entries, shows revoked history correctly and clears activity through the API');
+  checks.push('Settings paginates past 50 connections and shows revoked history correctly');
 
   await stopServer();
   await startServer();
   await page.goto(`${origin}/#/dashboard`); await page.reload();
-  await page.getByText('Browser migration · 旧笔记', { exact: true }).first().waitFor();
+  await page.getByText(backup.notes[0].summary, { exact: true }).first().waitFor();
   const secondContext = await browser.newContext();
   const secondPage = await secondContext.newPage();
   await secondPage.goto(origin);
   await secondPage.getByLabel('Email', { exact: true }).fill(email);
   await secondPage.getByLabel('Password', { exact: true }).fill(password);
   await secondPage.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await secondPage.getByText('Browser migration · 旧笔记', { exact: true }).first().waitFor();
+  await secondPage.getByText(backup.notes[0].summary, { exact: true }).first().waitFor();
   await secondContext.close();
   checks.push('Server restart retains database content and session; a separate browser context can sign in and read the same library');
 

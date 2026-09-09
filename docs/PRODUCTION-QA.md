@@ -21,8 +21,8 @@ The browser check uses Playwright and Chromium; install Chromium with `npx playw
 - Real official MCP clients over Streamable HTTP and stdio, typed tool discovery and mutations through the same API service.
 - Frontend serialized saves, canonical acknowledgements, local recovery, form/gesture refresh guards, account-change errors and deliberate import/replace transactions.
 - Existing board geometry, layers, shape styles, muted colors, Markdown/Word/Excel/ZIP import and export behavior.
-- Browser setup, bilingual note capture, saved board reopen, external note updates, frozen text, editor conflicts with downloadable recovery, backup histories, token management, browser-data migration, actual HTTP process restart, independent login and mobile layout.
-- Quiet dashboard header, Command-F search autofocus and bilingual results, avatar Settings navigation, file import entry, conditional legacy import, collapsed connection controls, consistent Activity typography and responsive light/dark layouts.
+- Browser setup, bilingual note capture, saved board reopen, external note updates, frozen text, editor conflicts with downloadable recovery, backup histories, token management, actual HTTP process restart, independent login and mobile layout.
+- Quiet dashboard header, Command-F search autofocus and bilingual results, avatar Settings navigation, file import entry, collapsed connection controls and responsive light/dark layouts. Settings has no Activity or browser-demo migration section and issues no Activity requests.
 
 The executable browser assertions and current results are in `scripts/verify-production.mjs` and `demo/screenshots/production/results.json`. Screenshots beside the results cover setup, desktop notes, the board, mobile notes, the avatar menu and Settings in desktop/mobile light/dark themes.
 
@@ -66,3 +66,9 @@ The setup script explicitly builds with `NODE_ENV=production`, even when the loc
 - Settings uses one section-header style and theme variables. Activity shows readable operation names; file import is prominent, legacy demo import appears only when present, and AI connection controls are collapsed by default.
 - Fresh verification: 47 frontend tests passed; optimized production build passed; all 13 real PostgreSQL browser scenario groups passed with 0 page errors. Checks include connection controls fitting at 900px and 390px, pagination, migration, token revocation and account isolation.
 - Reviewed desktop light/dark, mobile dark and avatar screenshots. Local port 3001 returned readiness 200 and served HTML identical to the latest built artifact. The existing application account and content were not changed by these tests. The Docker image was not rebuilt for this UI-only change.
+
+## Settings simplification — 2026-09-09
+
+Removed the Activity section and browser-demo migration action, including their Settings fetches, state, handlers, and styles. Normal file import, full backup restore, and connection management remain. Existing browser data and database activity records are not deleted; the Activity API/MCP remains available.
+
+Fresh verification: 47 frontend tests, 25 database/API/MCP tests, and all 13 browser scenario groups passed; the optimized production build passed with 0 browser page errors. Browser checks confirm that legacy browser data is left untouched, Settings never requests Activity, and import, theme, token creation/rename/revocation, pagination, and account isolation still work. Desktop light and mobile dark screenshots were visually reviewed.

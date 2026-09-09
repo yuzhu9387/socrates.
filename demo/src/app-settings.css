@@ -17,8 +17,6 @@
 .app-settings-disclosure>summary:focus-visible{outline:2px solid var(--muted);outline-offset:-3px}
 .app-settings-disclosure>summary span{margin-left:auto;color:var(--muted);font-size:10px;font-weight:400}
 .app-settings-heading+.app-settings-disclosure{border-top:0}
-.app-settings-disclosure-body{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:0 25px 22px}
-.app-settings-disclosure-body p{color:var(--muted);font-size:11px;line-height:1.6}
 .app-settings-disclosure-content{border-top:1px solid var(--line)}
 
 .app-token-form{display:grid;grid-template-columns:minmax(170px,1fr) minmax(240px,1.4fr) auto;align-items:end;gap:15px;padding:23px 25px}
@@ -41,8 +39,6 @@
 .app-management-row strong{color:var(--text);font-size:12px;font-weight:600}
 .app-management-row small{color:var(--muted);font-size:10px;line-height:1.45;overflow-wrap:anywhere}
 .app-settings-empty{margin:0;padding:20px 25px;color:var(--muted);font-size:11px}
-.app-activity-list{border-top:0}
-.app-activity-dot{width:7px;height:7px;border:1px solid var(--muted);border-radius:50%;background:transparent;flex-shrink:0}
 .app-load-more{padding:15px 25px;border-top:1px solid var(--line)}
 
 @media(min-width:761px) and (max-width:1100px){
@@ -57,7 +53,6 @@
   .app-settings-heading h2{font-size:19px}
   .app-settings-heading>.btn{font-size:10px;padding:8px 10px}
   .app-settings-disclosure>summary{padding:16px 20px}
-  .app-settings-disclosure-body{align-items:flex-start;flex-direction:column;padding:0 20px 20px}
   .app-settings .setting-actions.app-settings-actions{padding:20px}
   .app-token-form{grid-template-columns:1fr;padding:20px}
   .app-token-once{align-items:flex-start;flex-wrap:wrap;margin:0 20px 18px}

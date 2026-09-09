@@ -10,6 +10,8 @@ The app pins every protected request to its displayed user with `X-Socrates-Acco
 
 Open the avatar menu, then **Settings → AI & integrations → Manage connections** to create an API connection. The plaintext token appears once. Keep it in the client's environment or secret store. The database stores a hash; revocation takes effect on subsequent API calls.
 
+The generated token authorizes an MCP client to act on the account that created it. Each tool call passes through the shared workspace service and its authentication, ownership, relation, validation, revision, and scope checks. The token does not provide direct SQL access or database credentials.
+
 Scopes form a hierarchy:
 
 - `read`: read/search.
@@ -20,7 +22,7 @@ Tokens cannot create tokens, change account credentials, or obtain browser sessi
 
 ## Versions and errors
 
-`GET /workspace/status` returns `{revision,counts}`. `GET /workspace` returns `{revision,data}` for the UI/migration projection. Every content mutation carries `expectedRevision` in its JSON body or `If-Match: "<revision>"`. The initial release deliberately serializes changes per workspace, including independent notes; concurrent edits can return 409.
+`GET /workspace/status` returns `{revision,counts}`. `GET /workspace` returns `{revision,data}` for the UI and full-backup projection. Every content mutation carries `expectedRevision` in its JSON body or `If-Match: "<revision>"`. The initial release deliberately serializes changes per workspace, including independent notes; concurrent edits can return 409.
 
 Use `Idempotency-Key` for retries of the same request. A matching retry returns the committed result; the same key with a different request returns 409. After permanent removal or a full replacement, prior idempotency responses are cleared so cached snapshots cannot retain deleted content. A retry from before that removal must re-read and reconcile instead of replaying the old snapshot.
 
@@ -48,7 +50,7 @@ Do not automatically overwrite with a newer revision. Preserve local edits, read
 | Trash | `/trash` GET; `/trash/notes/:id/restore`, `/trash/maps/:id/restore` POST; same object `/purge` POST or DELETE | Trash |
 | Preferences | `/me/preferences` GET/PATCH/PUT | Settings |
 | API connections | `/connections` GET/POST; `/:id` PATCH/DELETE | Settings |
-| Activity | `/activity` GET/DELETE; `/:id` DELETE | Settings |
+| Activity | `/activity` GET/DELETE; `/:id` DELETE | API/MCP only; no Settings view |
 
 Lists accept bounded `limit`/`offset` and `q` where relevant, returning `items,total,limit,offset`. IDs remain prefixed strings compatible with the prototype. Tag path IDs are their display names; URL-encode them. Renaming a tag updates its current associations and leaves historical snapshots intact. Deleting a tag removes its current associations; tags do not have a separate recoverable Trash lifecycle in this release.
 
