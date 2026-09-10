@@ -9,12 +9,13 @@ This runbook records the personal Socrates deployment and the commands used to o
 | Region | `us-west2` |
 | Cloud Run service | `socrates` |
 | Runtime service account | `socrates-runtime@leonas-friends.iam.gserviceaccount.com` |
-| Artifact Registry repository | `us-west2-docker.pkg.dev/leonas-friends/cloud-run-source-deploy` |
+| CI Artifact Registry image | `us-west2-docker.pkg.dev/leonas-friends/socrates/app` |
 | Cloud SQL instance | `leonas-friends:us-west2:avery-db` |
 | PostgreSQL database / role | `socrates` / `socrates_app` |
 | Secret Manager secret | `socrates-database-url` |
+| GitHub deployer | `socrates-build@leonas-friends.iam.gserviceaccount.com` |
 
-As of 2026-09-09, revision `socrates-00001-m68` is Ready at [Socrates](https://socrates-314788321213.us-west2.run.app). It runs image tag `socrates:20260909-1` (digest `sha256:83da3425805ea06968d9395c2efd097ee5935612affe409577c82c4007762c62`) and pins database secret version `1`. The validated account data has been migrated. All ten cloud verification groups passed both before and after explicitly approved public browser access, with temporary accounts removed afterward. Library access still requires Socrates authentication.
+The initial manual deployment on 2026-09-09 produced Ready revision `socrates-00001-m68` at [Socrates](https://socrates-314788321213.us-west2.run.app). It used image tag `socrates:20260909-1` from the historical `cloud-run-source-deploy` repository (digest `sha256:83da3425805ea06968d9395c2efd097ee5935612affe409577c82c4007762c62`) and pinned database secret version `1`. The validated account data was migrated, and all ten cloud verification groups passed before and after public browser access, with temporary accounts removed afterward. Library access still requires Socrates authentication. Current releases and their test results are recorded in GitHub Actions; deployed revisions and image digests are recorded by Cloud Run and Artifact Registry.
 
 The Cloud SQL **instance** is shared infrastructure. Socrates uses its own `socrates` database and restricted `socrates_app` login; that does not share tables, accounts, sessions, passwords, or API tokens with Avery. Socrates has its own authentication and is not Avery SSO. Do not grant `socrates_app` privileges on an Avery database or reuse an Avery application credential.
 
@@ -37,7 +38,7 @@ Enable the required APIs and verify the existing resources:
 ```sh
 gcloud --configuration=avery-personal services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com sqladmin.googleapis.com secretmanager.googleapis.com
 gcloud --configuration=avery-personal sql instances describe avery-db --format='value(connectionName,region,databaseVersion)'
-gcloud --configuration=avery-personal artifacts repositories describe cloud-run-source-deploy --location=us-west2
+gcloud --configuration=avery-personal artifacts repositories describe socrates --location=us-west2
 ```
 
 The instance connection name must be `leonas-friends:us-west2:avery-db`. Stop if the project, region, or instance differs.
@@ -97,9 +98,9 @@ gcloud --configuration=avery-personal secrets add-iam-policy-binding socrates-da
 
 For an existing secret, skip `secrets create` and add a new version. Never use `gcloud secrets versions access` merely to inspect the URL, and never paste the password into `--set-env-vars`.
 
-The deployer also needs permission to use the runtime service account. Grant the narrow `roles/iam.serviceAccountUser` binding to `user:yuzhu9387@gmail.com` if it is not already inherited. Cloud Build's build identity must have Artifact Registry write access to `cloud-run-source-deploy`; follow the project's existing IAM policy rather than granting broad editor access.
+The deployer also needs permission to use the runtime service account. Grant the narrow `roles/iam.serviceAccountUser` binding to `user:yuzhu9387@gmail.com` if it is not already inherited. The GitHub deployer has its own narrower binding described below.
 
-## Build the Docker image
+## Manual build fallback
 
 Run from the repository root. `.gcloudignore` excludes Git data, environment files, local databases, backups, dumps, dependencies, generated runtime screenshots, test reports, and internal working files. Documentation screenshots under `docs/assets/screenshots` are intentional source files. Review the upload set before submitting it:
 
@@ -107,15 +108,15 @@ Run from the repository root. `.gcloudignore` excludes Git data, environment fil
 gcloud --configuration=avery-personal meta list-files-for-upload
 ```
 
-Stop if that output contains `.env`, `deploy.env`, `.local`, `backups`, a dump, or credentials. Choose an immutable release identifier, then let Cloud Build use the checked-in `Dockerfile` and push to the existing repository:
+Stop if that output contains `.env`, `deploy.env`, `.local`, `backups`, a dump, or credentials. For a reviewed manual fallback, choose an immutable release identifier, then let Cloud Build use the checked-in `Dockerfile` and push to the dedicated repository:
 
 ```sh
 RELEASE_ID='YYYYMMDD-HHMM-source-revision'
-IMAGE_URI="us-west2-docker.pkg.dev/leonas-friends/cloud-run-source-deploy/socrates:${RELEASE_ID}"
+IMAGE_URI="us-west2-docker.pkg.dev/leonas-friends/socrates/app:${RELEASE_ID}"
 gcloud --configuration=avery-personal builds submit --region=us-west2 --tag="$IMAGE_URI" .
 ```
 
-Do not deploy a mutable local image or a source tree containing unreviewed secrets.
+This fallback uses Cloud Build's own build identity, which is separate from `socrates-build` and needs writer access to the dedicated repository. Do not add Cloud Build permissions to the GitHub deployer. Do not deploy a mutable local image or a source tree containing unreviewed secrets.
 
 ## Deploy privately, initialize, then open access
 
@@ -201,6 +202,30 @@ curl --fail-with-body --silent --show-error "${SERVICE_URL}/api/v1/health/ready"
 
 Open `SERVICE_URL`, sign in with the Socrates account stored in that database, and verify a note, map save, page reload, and sign-out. Public Cloud Run invocation exposes only the Socrates HTTPS application; it does not make Cloud SQL public or bypass Socrates login.
 
+## GitHub Actions deployment
+
+The public repository is `yuzhu9387/socrates.` (repository ID `1363175348`, owner ID `33359827`). `.github/workflows/deploy.yml` runs after a push to `main`, or through a manual `workflow_dispatch` on `main`. A local commit does not deploy until it is pushed. Workflow concurrency serializes releases without cancelling a running deployment, and a current-`main` HEAD check prevents an older queued run from deploying after a newer commit.
+
+The workflow first runs the complete test suites against PostgreSQL 17: 47 frontend tests and 30 server tests, with zero skips required, then builds the checked-in Dockerfile before requesting cloud credentials. A failed test or build leaves the existing Cloud Run revision serving traffic. After a successful build, the workflow authenticates with GitHub OIDC, pushes `us-west2-docker.pkg.dev/leonas-friends/socrates/app:COMMIT_SHA`, resolves its digest, and deploys that immutable digest. `scripts/deploy-cloud.py` checks the service ETag and current `main` HEAD while preserving the existing runtime service account, Cloud SQL attachment, secret version, environment, probes, scaling, ingress, public-invoker policy, and traffic allocation.
+
+The Workload Identity Federation pool is `socrates-github`, with provider `github`, in project number `314788321213` and location `global`. Its provider condition accepts only GitHub claims with all of these values:
+
+- repository ID `1363175348` and owner ID `33359827`;
+- ref `refs/heads/main`;
+- workflow ref `yuzhu9387/socrates./.github/workflows/deploy.yml@refs/heads/main`;
+- event `push` or `workflow_dispatch`.
+
+The principal set `principalSet://iam.googleapis.com/projects/314788321213/locations/global/workloadIdentityPools/socrates-github/attribute.repository_id/1363175348` may impersonate only `socrates-build@leonas-friends.iam.gserviceaccount.com` through `roles/iam.workloadIdentityUser`. That service account has:
+
+- Artifact Registry writer on the `socrates` repository only;
+- custom `socratesServiceDeployer` (`run.services.get`, `run.services.update`) on the `socrates` Cloud Run service only;
+- custom `socratesRunOperationReader` (`run.operations.get`) at project scope, because Cloud Run operations are project resources;
+- `roles/iam.serviceAccountUser` on `socrates-runtime@leonas-friends.iam.gserviceaccount.com` only.
+
+It has no service-account key, GitHub secret, Cloud Build role, database credential, Cloud SQL access, Secret Manager access, or Avery role. The pipeline can preserve the existing secret reference but cannot read its value. Repository and owner numeric claims prevent a renamed or recreated repository from silently inheriting trust; the ref, workflow, and event claims limit which repository code can request credentials.
+
+Deployment status and test output are visible in the repository's **Actions** tab. Fix the source or transient failure, then rerun the failed workflow there; do not bypass a failed test by manually deploying its image. A manual workflow run still targets the current `main` commit.
+
 ## Routine operation
 
 Read recent logs and errors without printing secrets:
@@ -214,7 +239,7 @@ Check `/api/v1/health/live` for the process and `/api/v1/health/ready` for datab
 
 The deployed gen2 direct-ingress proxy behavior was verified before opening the service: Cloud Run appended the real caller address to `X-Forwarded-For`, including when a caller supplied that header. With `TRUST_PROXY_HOPS=1`, Socrates selected the Cloud Run-added caller address for rate limiting. Recheck the hop count if adding a load balancer or another ingress path.
 
-For an upgrade, take a Socrates-only database dump, build a new immutable image tag, and deploy it with the same service account, Cloud SQL attachment, secret, environment, and resource limits. The startup migration lock protects concurrent starts. Never edit an applied migration.
+For an upgrade, take a Socrates-only database dump and push the reviewed commit to `main`; use the manual build path only as a recovery fallback. The startup migration lock protects concurrent starts. Never edit an applied migration.
 
 To roll back application traffic, list revisions, choose a known previously healthy revision, and route 100% to that exact name:
 
@@ -224,7 +249,11 @@ KNOWN_GOOD_REVISION='socrates-00000-abc'
 gcloud --configuration=avery-personal run services update-traffic socrates --region=us-west2 --to-revisions="${KNOWN_GOOD_REVISION}=100"
 ```
 
-A code rollback does not reverse a database migration. Route to an older revision only when its code is compatible with the current schema; otherwise restore into a new database and validate before switching.
+A code rollback is a deliberate manual operation and does not reverse a database migration. Route to an older revision only when its code is compatible with the current schema; otherwise restore into a new database and validate before switching. Once traffic is pinned to a rollback revision, later CI deployments preserve that allocation. After verifying a new release, intentionally resume live updates by routing traffic to the latest revision:
+
+```sh
+gcloud --configuration=avery-personal run services update-traffic socrates --region=us-west2 --to-latest
+```
 
 ## Socrates-only backup and restore
 
@@ -265,6 +294,10 @@ Verify login, notes, tags, map revisions, card geometry, and connections against
 
 - [Build a container with Cloud Build](https://cloud.google.com/run/docs/building/containers)
 - [Deploy container images to Cloud Run](https://cloud.google.com/run/docs/deploying)
+- [Configure Workload Identity Federation for deployment pipelines](https://cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines)
+- [Workload Identity Federation best practices](https://cloud.google.com/iam/docs/best-practices-for-using-workload-identity-federation)
+- [Authenticate to Artifact Registry](https://cloud.google.com/artifact-registry/docs/docker/authentication)
+- [GitHub Actions concurrency](https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency)
 - [Connect Cloud Run to Cloud SQL for PostgreSQL](https://cloud.google.com/sql/docs/postgres/connect-run)
 - [Configure Secret Manager secrets for Cloud Run](https://cloud.google.com/run/docs/configuring/services/secrets)
 - [Invoke a private Cloud Run service](https://cloud.google.com/run/docs/authenticating/service-to-service)

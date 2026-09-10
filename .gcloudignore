@@ -31,3 +31,6 @@ scripts/**
 **/playwright-report
 **/playwright-report/**
 Socrates-UIUX-Demo.html
+gha-creds-*.json
+.ci
+.ci/**

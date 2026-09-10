@@ -1,0 +1,114 @@
+name: Deploy Socrates
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: socrates-production
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT: leonas-friends
+  GCP_REGION: us-west2
+  CLOUD_RUN_SERVICE: socrates
+  IMAGE_NAME: us-west2-docker.pkg.dev/leonas-friends/socrates/app
+  WORKLOAD_IDENTITY_PROVIDER: projects/314788321213/locations/global/workloadIdentityPools/socrates-github/providers/github
+  GCP_SERVICE_ACCOUNT: socrates-build@leonas-friends.iam.gserviceaccount.com
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.repository == 'yuzhu9387/socrates.'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_USER: socrates_test
+          POSTGRES_PASSWORD: disposable-ci-password
+          POSTGRES_DB: socrates_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U socrates_test -d socrates_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            demo/package-lock.json
+            server/package-lock.json
+
+      - name: Install locked dependencies
+        run: |
+          npm ci --prefix demo
+          npm ci --prefix server
+
+      - name: Test frontend and real PostgreSQL API/MCP with zero skips
+        env:
+          TEST_DATABASE_URL: postgresql://socrates_test:disposable-ci-password@127.0.0.1:5432/socrates_test
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap demo/tests/*.test.mjs | tee "$RUNNER_TEMP/frontend.tap"
+          # Direct node invocation prevents a checked-out .env from replacing the test DB.
+          node --test --test-concurrency=1 --test-reporter=tap server/tests/*.test.mjs | tee "$RUNNER_TEMP/server.tap"
+          node --input-type=module - "$RUNNER_TEMP/frontend.tap" "$RUNNER_TEMP/server.tap" <<'JS'
+          import {readFileSync} from 'node:fs';
+          if(!process.env.TEST_DATABASE_URL)throw new Error('The isolated test database is required.');
+          for(const file of process.argv.slice(2)){
+            const lines=readFileSync(file,'utf8').split('\n');
+            if(!lines.includes('# fail 0')||!lines.includes('# skipped 0')||!lines.includes('# cancelled 0')||!lines.some(line=>line.startsWith('# tests ')&&Number(line.slice(8))>0)){
+              throw new Error('Every frontend/server/database/API/MCP test must run with zero failures, skips or cancellations.');
+            }
+          }
+          JS
+
+      - name: Build the commit image before cloud authentication
+        run: docker build --pull --tag "$IMAGE_NAME:$GITHUB_SHA" .
+
+      - name: Authenticate to Google Cloud without a key
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+
+      - name: Push this image and capture its immutable digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud auth configure-docker us-west2-docker.pkg.dev --quiet
+          docker push "$IMAGE_NAME:$GITHUB_SHA"
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          image=os.environ['IMAGE_NAME']
+          values=json.loads(subprocess.check_output(['docker','image','inspect','--format','{{json .RepoDigests}}',image+':'+os.environ['GITHUB_SHA']],text=True))
+          digests=[value for value in values if re.fullmatch(re.escape(image)+r'@sha256:[a-f0-9]{64}',value)]
+          if len(digests)!=1:
+              raise RuntimeError('Expected exactly one immutable digest for this pushed image.')
+          with open(os.environ['GITHUB_ENV'],'a') as output:
+              output.write('IMAGE_DIGEST='+digests[0]+'\n')
+          PY
+
+      - name: Deploy only the current main commit to the existing service
+        run: python3 scripts/deploy-cloud.py

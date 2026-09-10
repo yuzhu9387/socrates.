@@ -14,6 +14,8 @@ The interface is **English**. Notes, tags, descriptions, annotations, and connec
 
 **Cloud app:** [Open Socrates](https://socrates-314788321213.us-west2.run.app) · [Google Cloud deployment guide](docs/GCP.md)
 
+**Automatic deployment:** pushes to `main` run the [Deploy Socrates workflow](https://github.com/yuzhu9387/socrates./actions/workflows/deploy.yml). It tests against disposable PostgreSQL, builds a commit-specific image, and updates Cloud Run using a keyless Google Cloud identity connection.
+
 ## Quick start
 
 Install **Node.js 22.12 or newer**, npm, and PostgreSQL command-line tools (`initdb`, `pg_ctl`, `psql`, and `pg_dump`). Then:

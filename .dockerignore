@@ -11,3 +11,5 @@ backups
 **/dist-app
 **/*.log
 Socrates-UIUX-Demo.html
+gha-creds-*.json
+.ci
