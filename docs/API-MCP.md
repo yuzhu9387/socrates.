@@ -8,7 +8,7 @@ The first account is created at `/auth/setup`; later sessions use `/auth/login`.
 
 The app pins every protected request to its displayed user with `X-Socrates-Account: <user-id>`. If another tab switches the shared cookie to a different account, protected reads, writes and logout return 409 `ACCOUNT_CHANGED`. The old tab keeps its recovery data under the original account and offers an explicit page reload. Bearer clients may omit this header; clients that display a cookie-backed account should send it to prevent cross-tab identity races.
 
-Open the avatar menu, then **Settings → AI & integrations → Manage connections** to create an API connection. The plaintext token appears once. Keep it in the client's environment or secret store. The database stores a hash; revocation takes effect on subsequent API calls.
+Click the avatar to open **Settings**, then **AI & integrations → Manage connections** to create an API connection. The plaintext token appears once. Keep it in the client's environment or secret store. The database stores a hash; revocation takes effect on subsequent API calls.
 
 The generated token authorizes an MCP client to act on the account that created it. Each tool call passes through the shared workspace service and its authentication, ownership, relation, validation, revision, and scope checks. The token does not provide direct SQL access or database credentials.
 

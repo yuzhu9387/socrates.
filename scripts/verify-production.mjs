@@ -107,14 +107,10 @@ try {
   await page.getByRole('dialog', { name: 'Your notebook', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
-  await page.getByRole('group', { name: 'Account options', exact: true }).waitFor();
-  await page.screenshot({ path: path.join(screenshots, 'account-menu.png') });
-  await page.keyboard.press('Escape');
-  assert.equal(await page.getByRole('button', { name: 'Account menu', exact: true }).getAttribute('aria-expanded'), 'false');
-  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
   await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+  assert.equal(await page.locator('.account-popover').count(), 0, 'The avatar navigates directly without an account dropdown.');
+  assert.equal(await page.getByRole('button', { name: 'Open settings', exact: true }).getAttribute('aria-expanded'), null);
   await page.getByRole('button', { name: 'Import file', exact: true }).click();
   await page.getByRole('dialog', { name: 'Import notes', exact: true }).waitFor();
   await page.keyboard.press('Escape');
@@ -234,8 +230,8 @@ try {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: path.join(screenshots, 'settings-mobile-dark.png'), fullPage: true });
   await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Open settings', exact: true }).focus();
+  await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
   assert.equal(await page.locator('.sidebar.is-open').count(), 0, 'Opening Settings from the avatar closes mobile navigation.');
   await page.getByRole('button', { name: 'Light', exact: true }).click();

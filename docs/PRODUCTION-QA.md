@@ -24,7 +24,7 @@ The browser check uses Playwright and Chromium; install Chromium with `npx playw
 - Browser setup, bilingual note capture, saved board reopen, external note updates, frozen text, editor conflicts with downloadable recovery, backup histories, token management, actual HTTP process restart, independent login and mobile layout.
 - Quiet dashboard header, Command-F search autofocus and bilingual results, avatar Settings navigation, file import entry, collapsed connection controls and responsive light/dark layouts. Settings has no Activity or browser-demo migration section and issues no Activity requests.
 
-The executable browser assertions and current results are in `scripts/verify-production.mjs` and `demo/screenshots/production/results.json`. Screenshots beside the results cover setup, desktop notes, the board, mobile notes, the avatar menu and Settings in desktop/mobile light/dark themes.
+The executable browser assertions and current results are in `scripts/verify-production.mjs` and `demo/screenshots/production/results.json`. Screenshots beside the results cover setup, desktop notes, the board, mobile notes and Settings in desktop/mobile light/dark themes. The avatar opens Settings directly, without a dropdown; browser assertions cover clicking it on desktop and keyboard activation on mobile.
 
 ## Review resolutions
 

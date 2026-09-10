@@ -56,7 +56,7 @@ The main navigation follows three stages: capture in **Dashboard**, connect in *
 | Knowledge map detail | `/#/maps/:id` | Explore the animated graph or frozen Original Board, inspect content, manage versions, export, and continue editing. |
 | Tag Manager | `/#/tags` | Create, search, rename, and delete tags; inspect usage and open associated notes. |
 | Trash | `/#/trash` | Inspect deleted notes/maps, restore them, or permanently delete eligible content. |
-| Settings | Avatar menu → Settings; `/#/settings` | Appearance, animation, data import/backup, account sign-out, and AI connections. |
+| Settings | Click the avatar; `/#/settings` | Appearance, animation, data import/backup, account sign-out, and AI connections. |
 | Global search | Header Search button or **⌘F / Ctrl+F** | Open a focused search dialog and find notes across the library. |
 | Missing page | Unrecognized route | Return to Dashboard from the fallback page. |
 
@@ -132,7 +132,7 @@ Pointer movement stays inside the canvas runtime. Durable workspace updates happ
 
 - Light/dark themes share monochrome components and an abstract ink background.
 - Disable graph animation in Settings.
-- Open Settings or switch themes from the avatar menu, including on mobile.
+- Click the avatar to open Settings directly, including on mobile. Change themes under Appearance.
 - Create named AI/API connections with explicit scopes, copy a new token once, rename connections, and revoke access.
 - Successful background synchronization stays quiet. Saving, offline, conflict, and failure states provide status or recovery actions.
 
