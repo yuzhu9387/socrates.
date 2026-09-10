@@ -8,14 +8,24 @@ This runbook records the personal Socrates deployment and the commands used to o
 | Project | `leonas-friends` |
 | Region | `us-west2` |
 | Cloud Run service | `socrates` |
+| Browser hostname | `https://socrates.dodofamily.com` |
+| Cloud Run backend | `https://socrates-314788321213.us-west2.run.app` |
 | Runtime service account | `socrates-runtime@leonas-friends.iam.gserviceaccount.com` |
 | CI Artifact Registry image | `us-west2-docker.pkg.dev/leonas-friends/socrates/app` |
 | Cloud SQL instance | `leonas-friends:us-west2:avery-db` |
 | PostgreSQL database / role | `socrates` / `socrates_app` |
 | Secret Manager secret | `socrates-database-url` |
+| Edge proxy secret | `socrates-edge-proxy-token` |
 | GitHub deployer | `socrates-build@leonas-friends.iam.gserviceaccount.com` |
+| Cloudflare account / Worker | `LeonaFriends` / `socrates-proxy` |
 
-The initial manual deployment on 2026-09-09 produced Ready revision `socrates-00001-m68` at [Socrates](https://socrates-314788321213.us-west2.run.app). It used image tag `socrates:20260909-1` from the historical `cloud-run-source-deploy` repository (digest `sha256:83da3425805ea06968d9395c2efd097ee5935612affe409577c82c4007762c62`) and pinned database secret version `1`. The validated account data was migrated, and all ten cloud verification groups passed before and after public browser access, with temporary accounts removed afterward. Library access still requires Socrates authentication. Current releases and their test results are recorded in GitHub Actions; deployed revisions and image digests are recorded by Cloud Run and Artifact Registry.
+The initial manual deployment on 2026-09-09 produced Ready revision `socrates-00001-m68` at the original browser URL, now retained as the [Cloud Run backend](https://socrates-314788321213.us-west2.run.app). It used image tag `socrates:20260909-1` from the historical `cloud-run-source-deploy` repository (digest `sha256:83da3425805ea06968d9395c2efd097ee5935612affe409577c82c4007762c62`) and pinned database secret version `1`. The validated account data was migrated, and all ten cloud verification groups passed before and after public browser access, with temporary accounts removed afterward. Library access still requires Socrates authentication. Current app releases and their test results are recorded in GitHub Actions; deployed revisions and image digests are recorded by Cloud Run and Artifact Registry.
+
+The public hostname is `https://socrates.dodofamily.com`, with the application still hosted by Cloud Run in `us-west2`. Wrangler authorization is limited to `LeonaFriends` and the approved `user:read`, `offline_access`, `account:read`, `workers:write`, `workers_scripts:write`, `workers_routes:write`, and `zone:read` scopes. Worker version `d81aaab1-7b21-4660-a3ef-655ecbb704b9` was deployed atomically with its encrypted secret and custom-domain route. At cutover, Cloud Run Ready revision `socrates-00005-m2g` received 100% of traffic with `APP_ORIGIN=https://socrates.dodofamily.com`, `TRUST_PROXY_HOPS=1`, and `EDGE_PROXY_SECRET=socrates-edge-proxy-token:1`; the existing database secret, runtime identity, Cloud SQL attachment, and two-instance ceiling were preserved.
+
+Final transport and unauthenticated-boundary checks passed through the custom domain. HTTPS returned HTTP 200 for the app, JavaScript, CSS, and `/api/v1/health/ready`; HTTP returned a 308 HTTPS redirect. Auth status returned 200 with setup complete and no active session, while workspace and tokenless MCP access returned 401. An empty login request from the configured custom origin reached application validation and returned 400 `INVALID_EMAIL`; the same mutation from a different origin returned 403 `ORIGIN_DENIED`. The sign-in page also rendered visibly in the in-app browser. These checks did not sign in to the real account or perform note, map, token, or other workspace mutations.
+
+The Cloudflare plan screen confirmed `LeonaFriends` remains on the Free plan at `$0`, with 100,000 requests per day and 10 ms CPU per request. The two temporary local secret files used for cutover were removed after verification; the durable secret copies remain in Cloudflare's encrypted Worker secret and Google Secret Manager.
 
 The Cloud SQL **instance** is shared infrastructure. Socrates uses its own `socrates` database and restricted `socrates_app` login; that does not share tables, accounts, sessions, passwords, or API tokens with Avery. Socrates has its own authentication and is not Avery SSO. Do not grant `socrates_app` privileges on an Avery database or reuse an Avery application credential.
 
@@ -118,17 +128,18 @@ gcloud --configuration=avery-personal builds submit --region=us-west2 --tag="$IM
 
 This fallback uses Cloud Build's own build identity, which is separate from `socrates-build` and needs writer access to the dedicated repository. Do not add Cloud Build permissions to the GitHub deployer. Do not deploy a mutable local image or a source tree containing unreviewed secrets.
 
-## Deploy privately, initialize, then open access
+## Fresh installation: deploy privately, initialize, then open access
 
-Use the canonical Cloud Run URL as the browser origin from the first process start:
+Use separate variables for the browser origin and backend endpoint:
 
 ```sh
-SERVICE_URL='https://socrates-314788321213.us-west2.run.app'
+APP_URL='https://socrates.dodofamily.com'
+BACKEND_URL='https://socrates-314788321213.us-west2.run.app'
 ```
 
-Cloud Run also reports the legacy alias `https://socrates-dkfldaimlq-wl.a.run.app`. Keep `APP_ORIGIN` on the canonical URL above: Socrates validates browser origins exactly, so an alias is not interchangeable for browser requests.
+The canonical `run.app` address was the original browser URL and remains the Worker upstream. Cloud Run also reports the legacy alias `https://socrates-dkfldaimlq-wl.a.run.app`; do not use that alias as the upstream or browser origin. With the custom domain, `APP_ORIGIN` must be the exact `APP_URL` because Socrates validates browser origins.
 
-Deploy the image privately with the Cloud SQL attachment and secret. `--port=3001` supplies Cloud Run's reserved `PORT=3001` environment variable; do not also set `PORT` with `--set-env-vars`.
+Deploy the image privately with the Cloud SQL attachment and pinned secrets. For a custom-domain installation, create the edge secret and runtime binding described below before running this command. `--port=3001` supplies Cloud Run's reserved `PORT=3001` environment variable; do not also set `PORT` with `--set-env-vars`.
 
 ```sh
 gcloud --configuration=avery-personal run deploy socrates \
@@ -137,8 +148,8 @@ gcloud --configuration=avery-personal run deploy socrates \
   --execution-environment=gen2 \
   --service-account='socrates-runtime@leonas-friends.iam.gserviceaccount.com' \
   --set-cloudsql-instances='leonas-friends:us-west2:avery-db' \
-  --set-secrets='DATABASE_URL=socrates-database-url:1' \
-  --set-env-vars="HOST=0.0.0.0,NODE_ENV=production,TRUST_PROXY_HOPS=1,APP_ORIGIN=${SERVICE_URL}" \
+  --set-secrets='DATABASE_URL=socrates-database-url:1,EDGE_PROXY_SECRET=socrates-edge-proxy-token:1' \
+  --set-env-vars="HOST=0.0.0.0,NODE_ENV=production,TRUST_PROXY_HOPS=1,APP_ORIGIN=${APP_URL}" \
   --port=3001 \
   --startup-probe='httpGet.path=/health/ready,httpGet.port=3001,periodSeconds=5,timeoutSeconds=3,failureThreshold=24' \
   --cpu=1 \
@@ -154,12 +165,14 @@ gcloud --configuration=avery-personal run deploy socrates \
 
 Both instance flags and service-level `--min`/`--max` flags are intentional; together they keep the revision and service scaling ceiling at two instances.
 
+The `run deploy` command above is for a fresh installation or deliberate reconstruction. Do not use its `--set-*` flags for routine updates to the existing service; the normal GitHub deployment preserves the live runtime configuration.
+
 The app runs migrations transactionally, under an advisory lock, before it listens. Keep the service private while forcing startup, checking readiness, and initializing data. First grant only the owner permission to invoke it:
 
 ```sh
 gcloud --configuration=avery-personal run services add-iam-policy-binding socrates --region=us-west2 --member='user:yuzhu9387@gmail.com' --role='roles/run.invoker'
 ID_TOKEN="$(gcloud --configuration=avery-personal auth print-identity-token)"
-curl --fail-with-body --silent --show-error -H "X-Serverless-Authorization: Bearer ${ID_TOKEN}" "${SERVICE_URL}/api/v1/health/ready"
+curl --fail-with-body --silent --show-error -H "X-Serverless-Authorization: Bearer ${ID_TOKEN}" "${BACKEND_URL}/api/v1/health/ready"
 ```
 
 Use `X-Serverless-Authorization` for Cloud Run IAM because Socrates reserves `Authorization` for its own API tokens. A ready response is `{"status":"ready"}`. Migration failures appear in Cloud Run logs and must be resolved before proceeding.
@@ -182,11 +195,11 @@ NODE
 unset SOCRATES_ACCOUNT_PASSWORD ACCOUNT_EMAIL
 curl --fail-with-body --silent --show-error \
   -H "X-Serverless-Authorization: Bearer ${ID_TOKEN}" \
-  -H "Origin: ${SERVICE_URL}" \
+  -H "Origin: ${APP_URL}" \
   -H 'X-Socrates-CSRF: 1' \
   -H 'Content-Type: application/json' \
   --data-binary "@${SETUP_FILE}" \
-  "${SERVICE_URL}/api/v1/auth/setup"
+  "${BACKEND_URL}/api/v1/auth/setup"
 rm -f "$SETUP_FILE"
 unset SETUP_FILE ID_TOKEN
 ```
@@ -197,16 +210,80 @@ Only after readiness and either first-account setup or migrated-data validation 
 
 ```sh
 gcloud --configuration=avery-personal run services add-iam-policy-binding socrates --region=us-west2 --member='allUsers' --role='roles/run.invoker'
-curl --fail-with-body --silent --show-error "${SERVICE_URL}/api/v1/health/ready"
+curl --fail-with-body --silent --show-error "${BACKEND_URL}/api/v1/health/ready"
 ```
 
-Open `SERVICE_URL`, sign in with the Socrates account stored in that database, and verify a note, map save, page reload, and sign-out. Public Cloud Run invocation exposes only the Socrates HTTPS application; it does not make Cloud SQL public or bypass Socrates login.
+After the Worker is deployed, open `APP_URL`, sign in with the Socrates account stored in that database, and verify a note, map save, page reload, and sign-out. Public Cloud Run invocation exposes only the Socrates HTTPS application; it does not make Cloud SQL public or bypass Socrates login.
+
+## Cloudflare custom domain
+
+The edge is Worker `socrates-proxy` in Cloudflare account `LeonaFriends` (`1456a05c352eb74495e343c0540df92c`). [`deploy/cloudflare/wrangler.jsonc`](../deploy/cloudflare/wrangler.jsonc) binds the Worker to the custom domain, and [`deploy/cloudflare/proxy.mjs`](../deploy/cloudflare/proxy.mjs) proxies requests to the canonical Cloud Run backend. Cloudflare provisions the custom-domain DNS record and certificate from the Wrangler route configuration.
+
+For a fresh setup, generate one high-entropy proxy secret, store it in Google Secret Manager, and create a temporary JSON secrets file from the same bytes for the first Worker deployment. Keep both files private and never print or commit them. Use a Wrangler session explicitly authorized for only the intended Cloudflare account and requested CLI permissions; do not substitute a long-lived API token in the repository.
+
+```sh
+EDGE_SECRET_DIR="$(mktemp -d)"
+chmod 700 "$EDGE_SECRET_DIR"
+EDGE_SECRET_FILE="$EDGE_SECRET_DIR/edge-secret"
+WORKER_SECRETS_FILE="$EDGE_SECRET_DIR/worker-secrets.json"
+export EDGE_SECRET_FILE WORKER_SECRETS_FILE
+node --input-type=module -e "import { randomBytes } from 'node:crypto'; import { writeFileSync } from 'node:fs'; writeFileSync(process.argv[1], randomBytes(48).toString('base64'), { mode: 0o600 });" "$EDGE_SECRET_FILE"
+node --input-type=module <<'NODE'
+import { readFileSync, writeFileSync } from 'node:fs';
+const secret = readFileSync(process.env.EDGE_SECRET_FILE, 'utf8');
+writeFileSync(
+  process.env.WORKER_SECRETS_FILE,
+  `${JSON.stringify({ EDGE_PROXY_SECRET: secret })}\n`,
+  { mode: 0o600 },
+);
+NODE
+gcloud --configuration=avery-personal secrets create socrates-edge-proxy-token --replication-policy=automatic
+gcloud --configuration=avery-personal secrets versions add socrates-edge-proxy-token --data-file="$EDGE_SECRET_FILE"
+gcloud --configuration=avery-personal secrets add-iam-policy-binding socrates-edge-proxy-token --member='serviceAccount:socrates-runtime@leonas-friends.iam.gserviceaccount.com' --role='roles/secretmanager.secretAccessor'
+npm exec --yes --package=wrangler@4.130.0 -- wrangler deploy --config deploy/cloudflare/wrangler.jsonc --secrets-file "$WORKER_SECRETS_FILE"
+rm -f "$EDGE_SECRET_FILE" "$WORKER_SECRETS_FILE"
+rmdir "$EDGE_SECRET_DIR"
+unset EDGE_SECRET_DIR EDGE_SECRET_FILE WORKER_SECRETS_FILE
+```
+
+The first `wrangler deploy --secrets-file` creates the Worker and encrypted secret atomically, avoiding a separate secret update against a Worker that does not yet exist. Subsequent deploys keep existing Worker secrets by default and use the shorter pinned command below. For a rotated secret, add a new Google Secret Manager version and atomically deploy the matching Worker secret before changing the pinned Cloud Run version.
+
+The Google secret, version `1`, accessor binding, and Cloud Run reference are active. To configure or restore them, update the service so it accepts only the custom browser origin and receives that pinned version:
+
+```sh
+gcloud --configuration=avery-personal run services update socrates \
+  --region=us-west2 \
+  --update-env-vars='APP_ORIGIN=https://socrates.dodofamily.com,TRUST_PROXY_HOPS=1' \
+  --update-secrets='EDGE_PROXY_SECRET=socrates-edge-proxy-token:1'
+```
+
+The Worker removes caller-supplied proxy-attestation headers, derives the client address at Cloudflare, and sends `X-Socrates-Proxy-IP` with `X-Socrates-Proxy-Token` to Cloud Run. Socrates trusts that address only when the token matches. The token attests routing and rate-limit provenance; it is not a Socrates account password, session, API token, or database credential, and its value must never reach the browser or logs. `TRUST_PROXY_HOPS=1` remains unchanged for the Cloud Run proxy hop.
+
+Deploy the Worker separately from the application:
+
+```sh
+npm exec --yes --package=wrangler@4.130.0 -- wrangler deploy --config deploy/cloudflare/wrangler.jsonc
+```
+
+The Worker stays on the Cloudflare Workers Free plan. Cloudflare documents an account-wide limit of 100,000 Worker requests per day, reset at 00:00 UTC, so other Workers in `LeonaFriends` share that quota. Do not enable a paid Workers plan or Cloudflare Load Balancing for this deployment. The Worker adds no Cloudflare charge within those limits, while the existing Cloud Run and Cloud SQL traffic and hosting fees remain unchanged.
+
+For ongoing releases, verify the custom hostname's readiness, sign-in, cookie persistence, mutations, downloads, API/MCP use, and rate limiting. A GitHub Actions release still deploys only the Cloud Run application and preserves `APP_ORIGIN`, `EDGE_PROXY_SECRET`, and the other runtime configuration. Changes to `proxy.mjs` or `wrangler.jsonc` require the separate pinned Wrangler command above.
+
+After any failed Worker command, inspect its output and the currently active deployment before retrying; a version upload can succeed even if a later route or deployment step fails. For a regression after deployment, identify a known good Worker version and roll back the edge:
+
+```sh
+npm exec --yes --package=wrangler@4.130.0 -- wrangler deployments list --config deploy/cloudflare/wrangler.jsonc
+WORKER_VERSION='known-good-version-id'
+npm exec --yes --package=wrangler@4.130.0 -- wrangler rollback "$WORKER_VERSION" --config deploy/cloudflare/wrangler.jsonc
+```
+
+Worker rollback becomes active immediately on the custom domain. It does not change Cloud Run, PostgreSQL, `APP_ORIGIN`, or Google Secret Manager, but the selected Worker version includes its bindings; ensure its `EDGE_PROXY_SECRET` matches the version pinned by Cloud Run. Verify the custom hostname again after rollback. If there is no prior Worker version, fix and redeploy the Worker while confirming the backend readiness endpoint remains healthy.
 
 ## GitHub Actions deployment
 
 The public repository is `yuzhu9387/socrates.` (repository ID `1363175348`, owner ID `33359827`). `.github/workflows/deploy.yml` runs after a push to `main`, or through a manual `workflow_dispatch` on `main`. A local commit does not deploy until it is pushed. Workflow concurrency serializes releases without cancelling a running deployment, and a current-`main` HEAD check prevents an older queued run from deploying after a newer commit.
 
-The workflow first runs the complete test suites against PostgreSQL 17: 47 frontend tests and 30 server tests, with zero skips required, then builds the checked-in Dockerfile before requesting cloud credentials. A failed test or build leaves the existing Cloud Run revision serving traffic. After a successful build, the workflow authenticates with GitHub OIDC, pushes `us-west2-docker.pkg.dev/leonas-friends/socrates/app:COMMIT_SHA`, resolves its digest, and deploys that immutable digest. `scripts/deploy-cloud.py` checks the service ETag and current `main` HEAD while preserving the existing runtime service account, Cloud SQL attachment, secret version, environment, probes, scaling, ingress, public-invoker policy, and traffic allocation.
+The workflow first runs the complete frontend, Worker, and server suites against PostgreSQL 17 with zero skips required, then builds the checked-in Dockerfile before requesting cloud credentials. A failed test or build leaves the existing Cloud Run revision serving traffic. After a successful build, the workflow authenticates with GitHub OIDC, pushes `us-west2-docker.pkg.dev/leonas-friends/socrates/app:COMMIT_SHA`, resolves its digest, and deploys that immutable digest. `scripts/deploy-cloud.py` checks the service ETag and current `main` HEAD while preserving the existing runtime service account, Cloud SQL attachment, secret version, environment, probes, scaling, ingress, public-invoker policy, and traffic allocation.
 
 The Workload Identity Federation pool is `socrates-github`, with provider `github`, in project number `314788321213` and location `global`. Its provider condition accepts only GitHub claims with all of these values:
 
@@ -237,7 +314,7 @@ gcloud --configuration=avery-personal logging read 'resource.type="cloud_run_rev
 
 Check `/api/v1/health/live` for the process and `/api/v1/health/ready` for database access. With two instances, the application can open up to two Node PostgreSQL pools; confirm the Cloud SQL connection budget before increasing `--max-instances` or concurrency.
 
-The deployed gen2 direct-ingress proxy behavior was verified before opening the service: Cloud Run appended the real caller address to `X-Forwarded-For`, including when a caller supplied that header. With `TRUST_PROXY_HOPS=1`, Socrates selected the Cloud Run-added caller address for rate limiting. Recheck the hop count if adding a load balancer or another ingress path.
+The initial gen2 direct-ingress behavior was verified before opening the service: Cloud Run appended the real caller address to `X-Forwarded-For`, including when a caller supplied that header. The custom-domain path uses the authenticated `X-Socrates-Proxy-IP` instead of treating the forwarded chain as the browser address; `TRUST_PROXY_HOPS=1` remains correct for the Cloud Run proxy hop. Recheck both mechanisms if another ingress layer is added.
 
 For an upgrade, take a Socrates-only database dump and push the reviewed commit to `main`; use the manual build path only as a recovery fallback. The startup migration lock protects concurrent starts. Never edit an applied migration.
 
@@ -290,7 +367,7 @@ unset PGPASSWORD
 
 Verify login, notes, tags, map revisions, card geometry, and connections against the restored database before creating a separate test secret or deliberately switching `DATABASE_URL`. Never restore over the live `socrates` database and never restore a Socrates dump into an Avery database.
 
-## Google references
+## References
 
 - [Build a container with Cloud Build](https://cloud.google.com/run/docs/building/containers)
 - [Deploy container images to Cloud Run](https://cloud.google.com/run/docs/deploying)
@@ -303,3 +380,7 @@ Verify login, notes, tags, map revisions, card geometry, and connections against
 - [Invoke a private Cloud Run service](https://cloud.google.com/run/docs/authenticating/service-to-service)
 - [Manage Cloud Run access](https://cloud.google.com/run/docs/securing/managing-access)
 - [Roll back Cloud Run traffic](https://cloud.google.com/run/docs/rollouts-rollbacks-traffic-migration)
+- [Cloudflare Workers Free plan limits](https://developers.cloudflare.com/workers/platform/limits/)
+- [Cloudflare Workers custom domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
+- [Wrangler deploy command](https://developers.cloudflare.com/workers/wrangler/commands/workers/#deploy)
+- [Cloudflare Worker rollbacks](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)
