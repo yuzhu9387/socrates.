@@ -1,0 +1,12 @@
+{
+  "name": "socrates-proxy",
+  "account_id": "1456a05c352eb74495e343c0540df92c",
+  "main": "proxy.mjs",
+  "compatibility_date": "2026-09-10",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "socrates.dodofamily.com", "custom_domain": true }
+  ],
+  "observability": { "enabled": false }
+}

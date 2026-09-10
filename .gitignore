@@ -21,3 +21,6 @@ test-results/
 deploy.env
 gha-creds-*.json
 .ci/
+.wrangler/
+.dev.vars
+.dev.vars.*

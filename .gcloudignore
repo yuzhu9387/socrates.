@@ -34,3 +34,6 @@ Socrates-UIUX-Demo.html
 gha-creds-*.json
 .ci
 .ci/**
+**/.wrangler
+**/.wrangler/**
+**/.dev.vars*

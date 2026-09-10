@@ -13,3 +13,5 @@ backups
 Socrates-UIUX-Demo.html
 gha-creds-*.json
 .ci
+**/.wrangler
+**/.dev.vars*

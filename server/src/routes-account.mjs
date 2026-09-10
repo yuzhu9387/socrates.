@@ -2,6 +2,7 @@ import {Router} from 'express';
 import {rateLimit} from 'express-rate-limit';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {z} from 'zod';
+import {authRateLimitKey} from './proxy-client-ip.mjs';
 import {createAccount,createSession,hashSecret,httpError,logActivity,publicUser,readCookie,requireAuth,requireScope,requireSession,SESSION_COOKIE,validateCredentials,verifyPassword,validScopes} from './auth.mjs';
 export function pagination(query){
  const limit=query.limit===undefined?50:Number(query.limit),offset=query.offset===undefined?0:Number(query.offset);
@@ -13,7 +14,7 @@ const uuid=z.string().uuid();
 function connectionId(req){return uuid.parse(req.params.id)}
 export function accountRoutes({pool,secureCookies=false,allowRegistration=false}){
  const router=Router();
- const limit=rateLimit({windowMs:15*60*1000,limit:30,standardHeaders:'draft-8',legacyHeaders:false,handler:(req,res)=>res.status(429).json({error:{code:'RATE_LIMITED',message:'Too many sign-in attempts. Try again later.'}})});
+ const limit=rateLimit({windowMs:15*60*1000,limit:30,keyGenerator:authRateLimitKey,standardHeaders:'draft-8',legacyHeaders:false,handler:(req,res)=>res.status(429).json({error:{code:'RATE_LIMITED',message:'Too many sign-in attempts. Try again later.'}})});
  router.get('/auth/status',async(req,res)=>res.json({setupRequired:!(await pool.query('SELECT 1 FROM users LIMIT 1')).rowCount,authenticated:Boolean(req.auth),...(req.auth?{user:publicUser(req.auth)}:{})}));
  router.post('/auth/setup',limit,async(req,res)=>{
   const user=await createAccount(pool,validateCredentials(req.body),true);await createSession(pool,user.id,res,secureCookies);res.status(201).json({user});

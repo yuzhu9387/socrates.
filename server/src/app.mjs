@@ -6,11 +6,13 @@ import {csrfProtection,httpError,makeAuthentication} from './auth.mjs';
 import {accountRoutes} from './routes-account.mjs';
 import {workspaceRoutes} from './routes-workspace.mjs';
 import {mountMcpHttp} from './mcp-server.mjs';
-export function createApp({pool,origin='http://127.0.0.1:3001',mcpApiUrl=origin,trustProxyHops=0,secureCookies=false,allowRegistration=false,staticDir,logger=console}){
+import {createProxyClientIpMiddleware} from './proxy-client-ip.mjs';
+export function createApp({pool,origin='http://127.0.0.1:3001',mcpApiUrl=origin,trustProxyHops=0,edgeProxySecret,secureCookies=false,allowRegistration=false,staticDir,logger=console}){
  if(!pool)throw new Error('createApp requires a PostgreSQL pool.');
  if(!Number.isSafeInteger(trustProxyHops)||trustProxyHops<0)throw new Error('Trusted proxy hops must be a nonnegative safe integer.');
  const app=express();app.disable('x-powered-by');
  app.set('trust proxy',trustProxyHops===0?false:trustProxyHops);
+ app.use(createProxyClientIpMiddleware(edgeProxySecret));
  app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'","'unsafe-inline'"],imgSrc:["'self'",'data:','blob:'],fontSrc:["'self'",'data:'],connectSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"],upgradeInsecureRequests:secureCookies?[]:null}},crossOriginEmbedderPolicy:false,hsts:secureCookies?undefined:false}));
  app.get(['/health/live','/api/v1/health/live'],(req,res)=>res.json({status:'ok'}));
  app.get(['/health/ready','/api/v1/health/ready'],async(req,res,next)=>{try{await pool.query('SELECT 1 FROM workspaces LIMIT 1');res.json({status:'ready'})}catch{next(httpError(503,'NOT_READY','Database is not ready.'))}});
