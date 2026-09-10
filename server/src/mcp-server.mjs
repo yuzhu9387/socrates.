@@ -87,8 +87,9 @@ export function createMcpServer({apiUrl,token}){
  register('activity_clear','Clear the activity history; requires purge scope.',{},'DELETE','activity',{destructive:true});
  return server;
 }
-export function mountMcpHttp(app,{pool,apiUrl}){
- app.use('/mcp',makeAuthentication(pool),requireAuth,(req,res,next)=>{if(req.auth.kind!=='token')return next(httpError(403,'TOKEN_REQUIRED','MCP requires a scoped API bearer token.'));if(req.get('origin')&&req.get('origin')!==new URL(apiUrl).origin)return next(httpError(403,'ORIGIN_DENIED','Origin not allowed.'));next()});
+export function mountMcpHttp(app,{pool,apiUrl,publicOrigin=apiUrl}){
+ const allowedOrigin=new URL(publicOrigin).origin;
+ app.use('/mcp',makeAuthentication(pool),requireAuth,(req,res,next)=>{if(req.auth.kind!=='token')return next(httpError(403,'TOKEN_REQUIRED','MCP requires a scoped API bearer token.'));if(req.get('origin')&&req.get('origin')!==allowedOrigin)return next(httpError(403,'ORIGIN_DENIED','Origin not allowed.'));next()});
  app.post('/mcp',async(req,res,next)=>{
   const server=createMcpServer({apiUrl,token:req.get('authorization').slice(7)}),transport=new StreamableHTTPServerTransport({sessionIdGenerator:undefined,enableJsonResponse:true});
   res.on('close',()=>{void transport.close();void server.close()});

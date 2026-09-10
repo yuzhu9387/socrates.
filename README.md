@@ -12,6 +12,8 @@ The interface is **English**. Notes, tags, descriptions, annotations, and connec
 
 [Quick start](#quick-start) · [Pages](#pages) · [Features](#features) · [Import and export](#import-and-export) · [API and MCP](#api-and-mcp) · [Development](#development)
 
+**Cloud app:** [Open Socrates](https://socrates-314788321213.us-west2.run.app) · [Google Cloud deployment guide](docs/GCP.md)
+
 ## Quick start
 
 Install **Node.js 22.12 or newer**, npm, and PostgreSQL command-line tools (`initdb`, `pg_ctl`, `psql`, and `pg_dump`). Then:
@@ -55,6 +57,24 @@ The main navigation follows three stages: capture in **Dashboard**, connect in *
 | Settings | Avatar menu → Settings; `/#/settings` | Appearance, animation, data import/backup, account sign-out, and AI connections. |
 | Global search | Header Search button or **⌘F / Ctrl+F** | Open a focused search dialog and find notes across the library. |
 | Missing page | Unrecognized route | Return to Dashboard from the fallback page. |
+
+The screenshots below use fictional bilingual sample content created in an isolated test database.
+
+![Dashboard with fictional bilingual notes, reflection controls, filters, and tags](docs/assets/screenshots/dashboard.png)
+
+*Dashboard — capture and organize bilingual notes.*
+
+![Brainstorm whiteboard with muted note cards, labeled connections, regions, and an annotation](docs/assets/screenshots/brainstorm-board.png)
+
+*Brainstorm — arrange source notes, connections, regions, and annotations on the whiteboard.*
+
+![Saved knowledge map detail in Graph View with five connected notes](docs/assets/screenshots/knowledge-map-graph.png)
+
+*Knowledge Map — revisit a saved version in Graph View.*
+
+![Simplified Settings with appearance, data, account, and AI integration sections](docs/assets/screenshots/settings.png)
+
+*Settings — control appearance, transfer backups, manage the account, and create scoped connections.*
 
 ## Features
 
@@ -176,7 +196,7 @@ flowchart LR
 
 Notes, tags, maps, card instances, edges, and revisions have distinct identities and relationships. A card references a source note; multiple cards can reuse one note. Immutable revisions intentionally store frozen note content. Services and database constraints enforce account ownership and cross-map references.
 
-**PostgreSQL is authoritative.** Default local database files live in `.local/postgres`; Docker uses the `postgres_data` volume. Browser storage holds account-specific recovery drafts and the separate legacy prototype, not the application's primary database.
+**PostgreSQL is authoritative.** Default local database files live in `.local/postgres`; Docker uses the `postgres_data` volume. The hosted app uses the independent `socrates` database on Cloud SQL in `us-west2`. Local and hosted libraries do not automatically synchronize. Browser storage holds account-specific recovery drafts and the separate legacy prototype, not the application's primary database.
 
 Changes use workspace revisions and idempotency keys. A stale write pauses with a conflict instead of silently overwriting another client. Download local changes before deliberately reloading server data. Requests are pinned to the displayed account so another tab's sign-in change cannot redirect pending edits into a different account.
 
@@ -247,7 +267,7 @@ npm --prefix demo run dev -- --mode app
 
 Vite serves port 4173 and proxies `/api` and `/mcp` to port 3001. The database must already be running. Keep the configured origin aligned with the browser URL so authenticated mutations pass the origin checks.
 
-The [original prototype](demo/README.md) is retained: `npm --prefix demo run dev` without `--mode app` runs an independent localStorage workspace. `npm --prefix demo run build` creates standalone `demo/dist/index.html`. Generated builds, screenshots, dependencies, local databases, secrets, and dumps are excluded from Git.
+The [original prototype](demo/README.md) is retained: `npm --prefix demo run dev` without `--mode app` runs an independent localStorage workspace. `npm --prefix demo run build` creates standalone `demo/dist/index.html`. Generated builds, runtime test screenshots, dependencies, local databases, secrets, and dumps are excluded from Git. The four curated README screenshots are checked in; reproduce them with `node --env-file=.env scripts/capture-readme.mjs` using an isolated test database and an installed Chromium browser.
 
 ### Verification
 
@@ -259,15 +279,17 @@ npm run test:e2e
 
 Database/browser tests require `TEST_DATABASE_URL` and isolated schemas. Browser fixtures do not reset the user's account or prototype data. Set `CHROMIUM_EXECUTABLE=/path/to/chromium` to use an existing installation.
 
-The suite includes **47 frontend tests**, **25 database/API/MCP tests**, and **13 browser scenario groups**. Coverage includes bilingual persistence, revisions, imports, conflict recovery, token revocation, account isolation, search, Settings navigation, and responsive light/dark layouts. See [verification details](docs/PRODUCTION-QA.md).
+The suite includes **47 frontend tests**, **30 server/database/API/MCP tests**, and **13 browser scenario groups**. Coverage includes bilingual persistence, revisions, imports, conflict recovery, token revocation, account isolation, proxy-aware rate limiting, MCP loopback routing, search, Settings navigation, and responsive light/dark layouts. See [verification details](docs/PRODUCTION-QA.md).
 
 ## Deployment and maintenance
 
 The [operations guide](docs/OPERATIONS.md) covers Docker, HTTPS, migrations, backups/restores, adding accounts, and password resets.
 
+The [Cloud Run guide](docs/GCP.md) covers the hosted deployment in Google Cloud project `leonas-friends`: a dedicated runtime identity, Secret Manager, an isolated Cloud SQL database, private initialization, verification, and upgrades. Sharing a Cloud SQL instance with Avery does not share application accounts or sessions.
+
 For remote hosting, set `APP_ORIGIN=https://your-hostname`, `NODE_ENV=production`, and use an HTTPS reverse proxy with a private database connection. The app rejects a production HTTP origin. Health checks are `/api/v1/health/live` and `/api/v1/health/ready`.
 
-This release targets personal libraries. It loads a complete workspace and serializes writes with a workspace-wide revision; unrelated simultaneous edits can conflict. It is not a realtime collaborative editor, and large-library throughput has not been established. Shared Avery/Socrates login, public signup, email-based recovery, automatic AI generation, slide-deck generation, and managed offsite backups are not implemented. Exports and saved maps provide material for creating courses and talks in other tools.
+This release targets personal libraries. It loads a complete workspace and serializes writes with a workspace-wide revision; unrelated simultaneous edits can conflict. It is not a realtime collaborative editor, and large-library throughput has not been established. Shared Avery/Socrates login, public signup, email-based recovery, automatic AI generation, and slide-deck generation are not implemented. The cloud database inherits the instance's existing automated backups; local installations need their own offsite backup process. Exports and saved maps provide material for creating courses and talks in other tools.
 
 ## Design documents
 
@@ -278,6 +300,7 @@ This release targets personal libraries. It loads a complete workspace and seria
 - [Concise interface specification](docs/superpowers/specs/2026-09-09-concise-interface.md)
 - [API and MCP guide](docs/API-MCP.md)
 - [Operations guide](docs/OPERATIONS.md)
+- [Google Cloud deployment](docs/GCP.md)
 - [Verification report](docs/PRODUCTION-QA.md)
 
 Design documents may include future targets. The features and boundaries above describe the implemented application.
